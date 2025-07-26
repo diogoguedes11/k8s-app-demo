@@ -5,43 +5,90 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"time"
 )
 
-var isReady = true // simple global variable
+var isReady = true 
+
+func getPort() string {
+	port := os.Getenv("PORT")
+	if port == "" {
+		port = "8080"
+	}
+	return ":" + port
+}
 
 func getRoot(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		io.WriteString(w, "Method not allowed")
+		return
+	}
 	fmt.Println("got / request")
-	io.WriteString(w, "This is my website!\n")
+	w.Header().Set("Content-Type","text/plain")
+	w.Header().Set("Cache-Control","public,max-age=300") // performance headers
+	io.WriteString(w,"This is my website!\n")
 }
 
 func getHealthz(w http.ResponseWriter, r *http.Request) {
-	fmt.Println("got /healthz request")
-	io.WriteString(w, "Healthz OK!\n")
+    if r.Method != http.MethodGet {
+        w.WriteHeader(http.StatusMethodNotAllowed)
+        io.WriteString(w, "Method not allowed\n")
+        return
+    }
+    fmt.Println("got /healthz request")
+    w.Header().Set("Content-Type", "text/plain")
+    w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
+
+    io.WriteString(w, "Healthz OK!\n")
 }
 
+
 func getReadiness(w http.ResponseWriter, r *http.Request) {
-	fmt.Println("got /readiness request")
-	if !isReady {
-		w.WriteHeader(http.StatusServiceUnavailable)
-		io.WriteString(w, "Not Ready\n")
-		return
-	}
-	w.WriteHeader(http.StatusOK)
-	io.WriteString(w, "Ready\n")
+    if r.Method != http.MethodGet {
+        w.WriteHeader(http.StatusMethodNotAllowed)
+        io.WriteString(w, "Method not allowed\n")
+        return
+    }
+    fmt.Println("got /readiness request")
+
+    w.Header().Set("Content-type","text/plain")
+    w.Header().Set("Cache-control","no-cache, no-store, must-revalidate")
+    if !isReady {
+        w.WriteHeader(http.StatusServiceUnavailable)
+        io.WriteString(w, "Not Ready\n")
+        return
+    }
+    w.WriteHeader(http.StatusOK)
+    io.WriteString(w, "Ready\n")
 }
 
 func setReadinessFail(w http.ResponseWriter, r *http.Request) {
-	fmt.Println("got /readiness/fail request")
-	isReady = false
-	w.WriteHeader(http.StatusServiceUnavailable)
-	io.WriteString(w, "Readiness set to false\n")
+    if r.Method != http.MethodPost {
+        w.WriteHeader(http.StatusMethodNotAllowed)
+        io.WriteString(w, "Method not allowed\n")
+        return
+    }
+    fmt.Println("Setting readiness to FAIL")
+    isReady = false
+    
+    w.Header().Set("Content-Type", "text/plain")
+    w.WriteHeader(http.StatusOK)
+    io.WriteString(w, "Readiness set to FAIL\n")
 }
 
 func setReadinessOk(w http.ResponseWriter, r *http.Request) {
-	fmt.Println("got /readiness/ok request")
-	isReady = true
-	w.WriteHeader(http.StatusOK)
-	io.WriteString(w, "Readiness set to true\n")
+    if r.Method != http.MethodPost {
+        w.WriteHeader(http.StatusMethodNotAllowed)
+        io.WriteString(w, "Method not allowed\n")
+        return
+    }
+    fmt.Println("Setting readiness to OK")
+    isReady = true
+    
+    w.Header().Set("Content-Type", "text/plain")
+    w.WriteHeader(http.StatusOK)
+    io.WriteString(w, "Readiness set to OK\n")
 }
 
 func main() {
@@ -50,9 +97,16 @@ func main() {
 	http.HandleFunc("/readiness", getReadiness)
 	http.HandleFunc("/readiness/fail", setReadinessFail)
 	http.HandleFunc("/readiness/ok", setReadinessOk)
+	port := getPort()
+	fmt.Printf("Web server started at port %s\n",port)
+	server := &http.Server{ // clients cant block our server forever :) 
+		Addr: port,
+		ReadTimeout: 10 * time.Second,
+		WriteTimeout: 10 * time.Second, 
+		IdleTimeout: 15 * time.Second, // closes idle connections
 
-	fmt.Println("Web server started at port 8080")
-	err := http.ListenAndServe(":8080", nil)
+	}
+	err := server.ListenAndServe()
 	if err != nil {
 		fmt.Printf("Error starting server: %v\n", err)
 		os.Exit(1)
